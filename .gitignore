@@ -1,0 +1,22 @@
+# Build output
+/bin/
+/dist/
+
+# Redis persistence artifacts
+*.rdb
+*.aof
+appendonlydir/
+
+# Generated ingress config
+deploy/nginx/upstreams.conf
+
+# Test and coverage output
+*.test
+*.out
+coverage.html
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store

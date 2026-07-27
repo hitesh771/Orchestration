@@ -56,33 +56,33 @@ func TelemetryCPUKey(deployment, podID string) string {
 
 // Deployment hash fields.
 const (
-	FieldDeploymentName     = "name"
-	FieldMinReplicas        = "min_replicas"
-	FieldMaxReplicas        = "max_replicas"
-	FieldCPURequest         = "cpu_request"
-	FieldMemRequest         = "mem_request"
-	FieldDesiredReplicas    = "desired_replicas"
-	FieldCreatedAt          = "created_at"
-	FieldLastScaleUpAt      = "last_scale_up_at"
-	FieldLastScaleDownAt    = "last_scale_down_at"
+	FieldDeploymentName  = "name"
+	FieldMinReplicas     = "min_replicas"
+	FieldMaxReplicas     = "max_replicas"
+	FieldCPURequest      = "cpu_request"
+	FieldMemRequest      = "mem_request"
+	FieldDesiredReplicas = "desired_replicas"
+	FieldCreatedAt       = "created_at"
+	FieldLastScaleUpAt   = "last_scale_up_at"
+	FieldLastScaleDownAt = "last_scale_down_at"
 )
 
 // Pod hash fields.
 const (
-	FieldPodDeployment        = "deployment"
-	FieldPodID                = "pod_id"
-	FieldPodStatus            = "status"
-	FieldPodNodeID            = "node_id"
-	FieldPodCPURequest        = "cpu_request"
-	FieldPodMemRequest        = "mem_request"
-	FieldPodCreatedAt         = "created_at"
-	FieldPodPID               = "pid"
-	FieldPodStartedAt         = "started_at"
-	FieldPodRestartCount      = "restart_count"
-	FieldPodConsecFailures    = "consecutive_failures"
-	FieldPodLastHealthOKAt    = "last_health_ok_at"
-	FieldPodBackoffNextSec    = "backoff_next_seconds"
-	FieldPodLastRestartAt     = "last_restart_at"
+	FieldPodDeployment     = "deployment"
+	FieldPodID             = "pod_id"
+	FieldPodStatus         = "status"
+	FieldPodNodeID         = "node_id"
+	FieldPodCPURequest     = "cpu_request"
+	FieldPodMemRequest     = "mem_request"
+	FieldPodCreatedAt      = "created_at"
+	FieldPodPID            = "pid"
+	FieldPodStartedAt      = "started_at"
+	FieldPodRestartCount   = "restart_count"
+	FieldPodConsecFailures = "consecutive_failures"
+	FieldPodLastHealthOKAt = "last_health_ok_at"
+	FieldPodBackoffNextSec = "backoff_next_seconds"
+	FieldPodLastRestartAt  = "last_restart_at"
 )
 
 // Node capacity hash fields.
@@ -115,8 +115,8 @@ type DeploymentSpec struct {
 	Name            string `json:"name"`
 	MinReplicas     int    `json:"min_replicas"`
 	MaxReplicas     int    `json:"max_replicas"`
-	CPURequest      int    `json:"cpu_request"`      // millicores
-	MemRequest      int    `json:"mem_request"`       // MB
+	CPURequest      int    `json:"cpu_request"` // millicores
+	MemRequest      int    `json:"mem_request"` // MB
 	DesiredReplicas int    `json:"desired_replicas"`
 	CreatedAt       string `json:"created_at"`
 	LastScaleUpAt   string `json:"last_scale_up_at,omitempty"`
@@ -237,12 +237,12 @@ func PodToMap(p *PodSpec) map[string]interface{} {
 // MapToPod converts a Redis hash field map to a PodSpec.
 func MapToPod(m map[string]string) (*PodSpec, error) {
 	p := &PodSpec{
-		Deployment: m[FieldPodDeployment],
-		PodID:      m[FieldPodID],
-		Status:     m[FieldPodStatus],
-		NodeID:     m[FieldPodNodeID],
-		CreatedAt:  m[FieldPodCreatedAt],
-		StartedAt:  m[FieldPodStartedAt],
+		Deployment:     m[FieldPodDeployment],
+		PodID:          m[FieldPodID],
+		Status:         m[FieldPodStatus],
+		NodeID:         m[FieldPodNodeID],
+		CreatedAt:      m[FieldPodCreatedAt],
+		StartedAt:      m[FieldPodStartedAt],
 		LastHealthOKAt: m[FieldPodLastHealthOKAt],
 		LastRestartAt:  m[FieldPodLastRestartAt],
 	}
