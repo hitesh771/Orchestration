@@ -42,6 +42,19 @@ func PodKey(deployment, podID string) string {
 	return fmt.Sprintf("pod:%s:%s", deployment, podID)
 }
 
+// PodKeyPattern returns the glob pattern matching every pod hash key.
+// Used by SCAN-based sweeps that must enumerate pods without blocking Redis.
+func PodKeyPattern() string { return "pod:*:*" }
+
+// DeploymentPodsPattern returns the glob pattern matching every pod key
+// belonging to a single deployment.
+func DeploymentPodsPattern(deployment string) string {
+	return fmt.Sprintf("pod:%s:*", deployment)
+}
+
+// DeploymentKeyPattern returns the glob pattern matching every deployment hash key.
+func DeploymentKeyPattern() string { return "deployment:*" }
+
 // DeploymentEventsChannel returns the Pub/Sub channel for deployment change notifications.
 func DeploymentEventsChannel() string { return "deployment:events" }
 
@@ -103,6 +116,18 @@ const (
 	StatusCrashLoopBackOff = "CrashLoopBackOff"
 	StatusUnschedulable    = "Unschedulable"
 )
+
+// ConsumesCapacity reports whether a pod in the given status still holds a
+// reservation against its node's capacity.
+//
+// A pod consumes capacity from the moment the scheduler reserves it (Pending)
+// until that reservation is explicitly released. Only Evicted releases it: the
+// Health Controller resets a dead node's allocations when it evicts, so an
+// Evicted pod no longer counts anywhere. Failed and CrashLoopBackOff pods are
+// still bound to their node and awaiting restart, so their reservation stands.
+func ConsumesCapacity(status string) bool {
+	return status != StatusEvicted
+}
 
 // Node status value (written as the lease value).
 const NodeStatusReady = "Ready"
