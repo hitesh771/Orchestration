@@ -69,15 +69,18 @@ func TelemetryCPUKey(deployment, podID string) string {
 
 // Deployment hash fields.
 const (
-	FieldDeploymentName  = "name"
-	FieldMinReplicas     = "min_replicas"
-	FieldMaxReplicas     = "max_replicas"
-	FieldCPURequest      = "cpu_request"
-	FieldMemRequest      = "mem_request"
-	FieldDesiredReplicas = "desired_replicas"
-	FieldCreatedAt       = "created_at"
-	FieldLastScaleUpAt   = "last_scale_up_at"
-	FieldLastScaleDownAt = "last_scale_down_at"
+	FieldDeploymentName   = "name"
+	FieldMinReplicas      = "min_replicas"
+	FieldMaxReplicas      = "max_replicas"
+	FieldCPURequest       = "cpu_request"
+	FieldMemRequest       = "mem_request"
+	FieldDesiredReplicas  = "desired_replicas"
+	FieldCreatedAt        = "created_at"
+	FieldLastScaleUpAt    = "last_scale_up_at"
+	FieldLastScaleDownAt  = "last_scale_down_at"
+	FieldTargetCPUPercent = "target_cpu_percentage"
+	FieldExecPath         = "exec_path"
+	FieldPort             = "port"
 )
 
 // Pod hash fields.
@@ -137,15 +140,18 @@ const NodeStatusReady = "Ready"
 
 // DeploymentSpec represents a deployment's configuration stored in Redis.
 type DeploymentSpec struct {
-	Name            string `json:"name"`
-	MinReplicas     int    `json:"min_replicas"`
-	MaxReplicas     int    `json:"max_replicas"`
-	CPURequest      int    `json:"cpu_request"` // millicores
-	MemRequest      int    `json:"mem_request"` // MB
-	DesiredReplicas int    `json:"desired_replicas"`
-	CreatedAt       string `json:"created_at"`
-	LastScaleUpAt   string `json:"last_scale_up_at,omitempty"`
-	LastScaleDownAt string `json:"last_scale_down_at,omitempty"`
+	Name             string `json:"name"`
+	MinReplicas      int    `json:"min_replicas"`
+	MaxReplicas      int    `json:"max_replicas"`
+	CPURequest       int    `json:"cpu_request"` // millicores
+	MemRequest       int    `json:"mem_request"` // MB
+	DesiredReplicas  int    `json:"desired_replicas"`
+	TargetCPUPercent int    `json:"target_cpu_percentage"`
+	ExecPath         string `json:"exec_path"`
+	Port             int    `json:"port"`
+	CreatedAt        string `json:"created_at"`
+	LastScaleUpAt    string `json:"last_scale_up_at,omitempty"`
+	LastScaleDownAt  string `json:"last_scale_down_at,omitempty"`
 }
 
 // PodSpec represents a pod's state stored in Redis.
@@ -179,13 +185,16 @@ type NodeCapacity struct {
 // DeploymentToMap converts a DeploymentSpec to a Redis hash field map.
 func DeploymentToMap(d *DeploymentSpec) map[string]interface{} {
 	m := map[string]interface{}{
-		FieldDeploymentName:  d.Name,
-		FieldMinReplicas:     d.MinReplicas,
-		FieldMaxReplicas:     d.MaxReplicas,
-		FieldCPURequest:      d.CPURequest,
-		FieldMemRequest:      d.MemRequest,
-		FieldDesiredReplicas: d.DesiredReplicas,
-		FieldCreatedAt:       d.CreatedAt,
+		FieldDeploymentName:   d.Name,
+		FieldMinReplicas:      d.MinReplicas,
+		FieldMaxReplicas:      d.MaxReplicas,
+		FieldCPURequest:       d.CPURequest,
+		FieldMemRequest:       d.MemRequest,
+		FieldDesiredReplicas:  d.DesiredReplicas,
+		FieldTargetCPUPercent: d.TargetCPUPercent,
+		FieldExecPath:         d.ExecPath,
+		FieldPort:             d.Port,
+		FieldCreatedAt:        d.CreatedAt,
 	}
 	if d.LastScaleUpAt != "" {
 		m[FieldLastScaleUpAt] = d.LastScaleUpAt
@@ -200,6 +209,7 @@ func DeploymentToMap(d *DeploymentSpec) map[string]interface{} {
 func MapToDeployment(m map[string]string) (*DeploymentSpec, error) {
 	d := &DeploymentSpec{
 		Name:            m[FieldDeploymentName],
+		ExecPath:        m[FieldExecPath],
 		CreatedAt:       m[FieldCreatedAt],
 		LastScaleUpAt:   m[FieldLastScaleUpAt],
 		LastScaleDownAt: m[FieldLastScaleDownAt],
@@ -221,6 +231,11 @@ func MapToDeployment(m map[string]string) (*DeploymentSpec, error) {
 	if d.DesiredReplicas, err = atoi(m[FieldDesiredReplicas]); err != nil {
 		return nil, fmt.Errorf("invalid %s: %w", FieldDesiredReplicas, err)
 	}
+
+	// Optional at the schema layer so hashes predating these fields stay
+	// readable; the API validator is what requires them on write.
+	d.TargetCPUPercent, _ = atoiDefault(m[FieldTargetCPUPercent], 0)
+	d.Port, _ = atoiDefault(m[FieldPort], 0)
 	return d, nil
 }
 
