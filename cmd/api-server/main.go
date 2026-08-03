@@ -1,57 +1,105 @@
 // Command api-server is the control-plane entrypoint for mini-k8s.
-// In Phase 1 it loads config, connects to Redis, emits a component_started
-// log event, and idles. Later phases add the REST API, scheduler, and controllers.
+//
+// It serves the REST API used to declare deployments and inspect cluster
+// state. Later phases add the reconciliation controllers, the autoscaler, and
+// the dashboard's SSE stream to this same process.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"mini-k8s/internal/api"
 	"mini-k8s/internal/config"
 	"mini-k8s/internal/logging"
 	"mini-k8s/internal/redisclient"
-	"mini-k8s/internal/schema"
+)
+
+const (
+	// readHeaderTimeout bounds how long a client may take to send headers,
+	// so an idle or slow connection cannot occupy a handler indefinitely.
+	readHeaderTimeout = 10 * time.Second
+	shutdownGrace     = 10 * time.Second
 )
 
 func main() {
-	ctx := context.Background()
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "api-server: %v\n", err)
+		os.Exit(1)
+	}
+}
 
-	// Load configuration.
+func run() error {
 	cfg := config.Load()
 
-	// Connect to Redis — fail fast if unreachable.
 	client, err := redisclient.New(cfg.RedisAddr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "api-server: failed to connect to Redis: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("connect to redis: %w", err)
 	}
 	defer client.Close()
 
-	// Create structured logger.
 	logger := logging.New("api-server", client)
 
-	// Smoke test: round-trip a test value through redisclient.
-	if err := client.SetKey(ctx, schema.TestKey(), "api-server-smoke", 0); err != nil {
-		logger.Error(ctx, "smoke_test_failed", fmt.Sprintf("failed to set test key: %v", err))
-	} else {
-		val, getErr := client.GetKey(ctx, schema.TestKey())
-		if getErr != nil {
-			logger.Error(ctx, "smoke_test_failed", fmt.Sprintf("failed to get test key: %v", getErr))
-		} else {
-			logger.Info(ctx, "smoke_test_passed", fmt.Sprintf("test key round-trip: %s", val))
-		}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Bound to loopback by default. The API is unauthenticated and a
+	// deployment's exec_path is executed on worker nodes, so exposing this
+	// port is equivalent to granting remote code execution on the cluster.
+	// Overriding BIND_ADDR is an explicit decision, not the default.
+	bindAddr := os.Getenv("BIND_ADDR")
+	if bindAddr == "" {
+		bindAddr = "127.0.0.1"
+	}
+	addr := net.JoinHostPort(bindAddr, cfg.Port)
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           api.NewServer(client, logger).Routes(),
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
-	// Emit component_started event.
-	logger.Info(ctx, "component_started", fmt.Sprintf("api-server started, listening on port %s", cfg.Port))
+	logger.Info(ctx, "component_started",
+		fmt.Sprintf("api-server listening on %s, redis=%s", addr, cfg.RedisAddr))
 
-	// Wait for shutdown signal.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+	if bindAddr != "127.0.0.1" && bindAddr != "localhost" {
+		logger.Warn(ctx, "api_exposed_beyond_loopback",
+			fmt.Sprintf("bound to %s: this API is unauthenticated and runs exec_path on workers", bindAddr))
+	}
 
-	logger.Info(ctx, "component_stopped", "api-server shutting down")
+	errCh := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("serve http: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+	}
+
+	// The signal already cancelled ctx, so draining needs a fresh one.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown http server: %w", err)
+	}
+
+	logger.Info(shutdownCtx, "component_stopped", "api-server stopped")
+	return nil
 }
