@@ -4,7 +4,10 @@
 // and field references flow through this package.
 package schema
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // ─── Key builders ───────────────────────────────────────────────────────────
 
@@ -99,6 +102,8 @@ const (
 	FieldPodLastHealthOKAt = "last_health_ok_at"
 	FieldPodBackoffNextSec = "backoff_next_seconds"
 	FieldPodLastRestartAt  = "last_restart_at"
+	FieldPodPIDStartTime   = "pid_start_time"
+	FieldPodHostPort       = "host_port"
 )
 
 // Node capacity hash fields.
@@ -170,6 +175,8 @@ type PodSpec struct {
 	LastHealthOKAt      string `json:"last_health_ok_at,omitempty"`
 	BackoffNextSeconds  int    `json:"backoff_next_seconds,omitempty"`
 	LastRestartAt       string `json:"last_restart_at,omitempty"`
+	PIDStartTime        uint64 `json:"pid_start_time,omitempty"`
+	HostPort            int    `json:"host_port,omitempty"`
 }
 
 // NodeCapacity represents a node's resource capacity stored in Redis.
@@ -271,6 +278,12 @@ func PodToMap(p *PodSpec) map[string]interface{} {
 	if p.LastRestartAt != "" {
 		m[FieldPodLastRestartAt] = p.LastRestartAt
 	}
+	if p.PIDStartTime != 0 {
+		m[FieldPodPIDStartTime] = p.PIDStartTime
+	}
+	if p.HostPort != 0 {
+		m[FieldPodHostPort] = p.HostPort
+	}
 	return m
 }
 
@@ -300,6 +313,8 @@ func MapToPod(m map[string]string) (*PodSpec, error) {
 	p.RestartCount, _ = atoiDefault(m[FieldPodRestartCount], 0)
 	p.ConsecutiveFailures, _ = atoiDefault(m[FieldPodConsecFailures], 0)
 	p.BackoffNextSeconds, _ = atoiDefault(m[FieldPodBackoffNextSec], 0)
+	p.HostPort, _ = atoiDefault(m[FieldPodHostPort], 0)
+	p.PIDStartTime = parseUint(m[FieldPodPIDStartTime])
 
 	return p, nil
 }
@@ -334,6 +349,20 @@ func MapToNodeCapacity(m map[string]string) (*NodeCapacity, error) {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+// parseUint reads an unsigned value, yielding 0 when absent or malformed.
+// For the process start-time marker 0 means "unknown", which callers must
+// treat as identity being unverifiable rather than as a match.
+func parseUint(s string) uint64 {
+	if s == "" {
+		return 0
+	}
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
 
 // atoi converts a string to an int, returning an error on failure.
 func atoi(s string) (int, error) {
