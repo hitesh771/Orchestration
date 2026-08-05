@@ -16,86 +16,11 @@ import (
 	"strconv"
 	"time"
 
+	"mini-k8s/internal/capacity"
 	"mini-k8s/internal/logging"
 	"mini-k8s/internal/redisclient"
 	"mini-k8s/internal/schema"
-)
-
-// Reservation outcomes returned by the reserve script.
-const (
-	reserveOK         = 1  // capacity was reserved
-	reserveNoHeadroom = 0  // node exists but cannot fit the request
-	reserveNoSuchNode = -1 // node has no capacity hash
-	reserveMalformed  = -2 // capacity hash is unreadable
-)
-
-// reserveCapacityScript atomically reserves CPU and memory on one node.
-//
-// Read, headroom check, and increment happen in a single indivisible step,
-// which is what removes the read-then-write race. The script mutates nothing
-// unless both dimensions fit.
-var reserveCapacityScript = fmt.Sprintf(`
-local key = KEYS[1]
-local cpuReq = tonumber(ARGV[1])
-local memReq = tonumber(ARGV[2])
-
-if redis.call('EXISTS', key) == 0 then
-  return %d
-end
-
-local totalCPU = tonumber(redis.call('HGET', key, '%s'))
-local totalMem = tonumber(redis.call('HGET', key, '%s'))
-local allocCPU = tonumber(redis.call('HGET', key, '%s'))
-local allocMem = tonumber(redis.call('HGET', key, '%s'))
-
-if totalCPU == nil or totalMem == nil or allocCPU == nil or allocMem == nil then
-  return %d
-end
-
-if (totalCPU - allocCPU) < cpuReq or (totalMem - allocMem) < memReq then
-  return %d
-end
-
-redis.call('HINCRBY', key, '%s', cpuReq)
-redis.call('HINCRBY', key, '%s', memReq)
-return %d
-`,
-	reserveNoSuchNode,
-	schema.FieldTotalCPU, schema.FieldTotalMem,
-	schema.FieldAllocatedCPU, schema.FieldAllocatedMem,
-	reserveMalformed,
-	reserveNoHeadroom,
-	schema.FieldAllocatedCPU, schema.FieldAllocatedMem,
-	reserveOK,
-)
-
-// releaseCapacityScript atomically returns CPU and memory to a node.
-//
-// Allocations are clamped at zero: a double release (for example a retry
-// racing an eviction that already reset the node) must not drive the counter
-// negative and hand out capacity the node does not have.
-var releaseCapacityScript = fmt.Sprintf(`
-local key = KEYS[1]
-local cpuRel = tonumber(ARGV[1])
-local memRel = tonumber(ARGV[2])
-
-if redis.call('EXISTS', key) == 0 then
-  return 0
-end
-
-local allocCPU = tonumber(redis.call('HGET', key, '%s')) or 0
-local allocMem = tonumber(redis.call('HGET', key, '%s')) or 0
-
-local newCPU = allocCPU - cpuRel
-local newMem = allocMem - memRel
-if newCPU < 0 then newCPU = 0 end
-if newMem < 0 then newMem = 0 end
-
-redis.call('HSET', key, '%s', newCPU, '%s', newMem)
-return 1
-`,
-	schema.FieldAllocatedCPU, schema.FieldAllocatedMem,
-	schema.FieldAllocatedCPU, schema.FieldAllocatedMem,
+	"mini-k8s/internal/supervisor"
 )
 
 // Scheduler assigns pods to nodes.
@@ -202,39 +127,12 @@ func (s *Scheduler) bestFitOrder(ctx context.Context, cpuReq, memReq int) ([]can
 // Reserve atomically claims capacity on a node. It reports whether the
 // reservation succeeded; a node that cannot fit the request is not an error.
 func (s *Scheduler) Reserve(ctx context.Context, nodeID string, cpuReq, memReq int) (bool, error) {
-	raw, err := s.client.EvalScript(ctx, reserveCapacityScript,
-		[]string{schema.NodeCapacityKey(nodeID)}, cpuReq, memReq)
-	if err != nil {
-		return false, fmt.Errorf("reserve capacity on %s: %w", nodeID, err)
-	}
-
-	code, ok := raw.(int64)
-	if !ok {
-		return false, fmt.Errorf("reserve capacity on %s: unexpected script result %T", nodeID, raw)
-	}
-
-	switch code {
-	case reserveOK:
-		return true, nil
-	case reserveNoHeadroom:
-		return false, nil
-	case reserveNoSuchNode:
-		return false, nil // node vanished mid-placement; try the next candidate
-	case reserveMalformed:
-		return false, fmt.Errorf("capacity hash for %s is malformed", nodeID)
-	default:
-		return false, fmt.Errorf("reserve capacity on %s: unknown result %d", nodeID, code)
-	}
+	return capacity.Reserve(ctx, s.client, nodeID, cpuReq, memReq)
 }
 
 // Release atomically returns capacity to a node, clamping at zero.
 func (s *Scheduler) Release(ctx context.Context, nodeID string, cpuRel, memRel int) error {
-	_, err := s.client.EvalScript(ctx, releaseCapacityScript,
-		[]string{schema.NodeCapacityKey(nodeID)}, cpuRel, memRel)
-	if err != nil {
-		return fmt.Errorf("release capacity on %s: %w", nodeID, err)
-	}
-	return nil
+	return capacity.Release(ctx, s.client, nodeID, cpuRel, memRel)
 }
 
 // ScheduleReplicas places count new replicas of a deployment.
@@ -308,6 +206,20 @@ func (s *Scheduler) scheduleOne(ctx context.Context, dep *schema.DeploymentSpec)
 			// the node would lose capacity to a pod that does not exist.
 			s.releaseAfterFailure(ctx, c.nodeID, dep)
 			return "", fmt.Errorf("write pod hash for %s/%s: %w", dep.Name, podID, err)
+		}
+
+		// Tell the node to start it. A failed dispatch is not fatal: the pod
+		// is durably recorded as Pending, so the agent's startup reconcile or
+		// the next reconciliation sweep still brings it up. Failing here would
+		// instead leak the reservation for a pod nobody retries.
+		if err := supervisor.SendCommand(ctx, s.client, c.nodeID, supervisor.Command{
+			Type:       supervisor.CommandStartPod,
+			Deployment: dep.Name,
+			PodID:      podID,
+		}); err != nil {
+			s.logger.Warn(ctx, "start_command_dispatch_failed",
+				fmt.Sprintf("pod stays Pending until the next sweep: %v", err),
+				logging.DeploymentID(dep.Name), logging.PodID(podID), logging.NodeID(c.nodeID))
 		}
 
 		s.logger.Info(ctx, "pod_scheduled",
