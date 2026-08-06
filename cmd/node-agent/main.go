@@ -17,6 +17,7 @@ import (
 	"mini-k8s/internal/logging"
 	"mini-k8s/internal/node"
 	"mini-k8s/internal/redisclient"
+	"mini-k8s/internal/supervisor"
 )
 
 // shutdownGrace bounds the clean-shutdown work so a wedged Redis cannot hang
@@ -69,6 +70,17 @@ func run() error {
 
 	go registrar.RunHeartbeatLoop(ctx)
 
+	sup := supervisor.NewSupervisor(client, logger, cfg.NodeID)
+
+	// Reconcile before consuming any commands. A queued start command for a pod
+	// that is already running would otherwise spawn a second process for it,
+	// which is exactly the duplicate the identity checks exist to prevent.
+	if _, err := sup.ReconcileOnStartup(ctx); err != nil {
+		return fmt.Errorf("reconcile pods on startup: %w", err)
+	}
+
+	go sup.RunCommandConsumer(ctx)
+
 	logger.Info(ctx, "node_ready",
 		fmt.Sprintf("lease active, refreshing every %s with a %s TTL", cfg.HeartbeatInterval, cfg.LeaseTTL),
 		logging.NodeID(cfg.NodeID),
@@ -89,7 +101,12 @@ func run() error {
 		)
 	}
 
-	logger.Info(shutdownCtx, "component_stopped", "node-agent stopped",
+	// Workload processes are deliberately left running. A restarting agent
+	// re-adopts them, so killing them here would turn every agent restart into
+	// an outage for workloads that are perfectly healthy. If the node is really
+	// going away, its lease lapses and the control plane reschedules the pods.
+	logger.Info(shutdownCtx, "component_stopped",
+		"node-agent stopped, supervised processes left running for re-adoption",
 		logging.NodeID(cfg.NodeID),
 	)
 	return nil
