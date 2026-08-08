@@ -18,6 +18,7 @@ import (
 
 	"mini-k8s/internal/api"
 	"mini-k8s/internal/config"
+	"mini-k8s/internal/controller"
 	"mini-k8s/internal/logging"
 	"mini-k8s/internal/redisclient"
 )
@@ -67,12 +68,18 @@ func run() error {
 	}
 
 	logger.Info(ctx, "component_started",
-		fmt.Sprintf("api-server listening on %s, redis=%s", addr, cfg.RedisAddr))
+		fmt.Sprintf("api-server listening on %s, redis=%s, reconcile every %s",
+			addr, cfg.RedisAddr, cfg.ReconcileInterval))
 
 	if bindAddr != "127.0.0.1" && bindAddr != "localhost" {
 		logger.Warn(ctx, "api_exposed_beyond_loopback",
 			fmt.Sprintf("bound to %s: this API is unauthenticated and runs exec_path on workers", bindAddr))
 	}
+
+	// Reconciliation runs in this process rather than a separate binary: it
+	// shares nothing with the HTTP handlers except Redis, and one fewer process
+	// is one fewer thing to supervise.
+	go controller.NewReplicaController(client, logger, cfg.ReconcileInterval).Run(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
