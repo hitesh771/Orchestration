@@ -22,6 +22,9 @@ type Config struct {
 	HeartbeatInterval time.Duration // how often the node refreshes its lease
 	LeaseTTL          time.Duration // how long the lease key lives without refresh
 
+	// Behavioral parameters — reconciliation
+	ReconcileInterval time.Duration // how often the level-triggered sweep runs
+
 	// Behavioral parameters — pod health
 	HealthCheckInterval time.Duration // how often to probe pod liveness
 	FailureThreshold    int           // consecutive failures before declaring dead
@@ -51,6 +54,7 @@ func Load() *Config {
 		RedisAddr:           envOrDefault("REDIS_ADDR", "localhost:6379"),
 		HeartbeatInterval:   envDuration("HEARTBEAT_INTERVAL", 3*time.Second),
 		LeaseTTL:            envDuration("LEASE_TTL", 10*time.Second),
+		ReconcileInterval:   envDuration("RECONCILE_INTERVAL", 10*time.Second),
 		HealthCheckInterval: envDuration("HEALTH_CHECK_INTERVAL", 5*time.Second),
 		FailureThreshold:    envInt("FAILURE_THRESHOLD", 3),
 		BackoffBase:         envDuration("BACKOFF_BASE", 1*time.Second),
