@@ -81,6 +81,16 @@ func run() error {
 
 	go sup.RunCommandConsumer(ctx)
 
+	// Pod self-healing belongs on the node, not in the control plane: only the
+	// process holding a pod can see whether it is actually serving, and only it
+	// can restart the pod in place without reallocating capacity.
+	go sup.RunHealthChecker(ctx, supervisor.HealthConfig{
+		Interval:         cfg.HealthCheckInterval,
+		FailureThreshold: cfg.FailureThreshold,
+		BackoffBase:      cfg.BackoffBase,
+		BackoffMax:       cfg.BackoffMax,
+	})
+
 	logger.Info(ctx, "node_ready",
 		fmt.Sprintf("lease active, refreshing every %s with a %s TTL", cfg.HeartbeatInterval, cfg.LeaseTTL),
 		logging.NodeID(cfg.NodeID),
