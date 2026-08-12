@@ -80,6 +80,7 @@ func run() error {
 	// shares nothing with the HTTP handlers except Redis, and one fewer process
 	// is one fewer thing to supervise.
 	go controller.NewReplicaController(client, logger, cfg.ReconcileInterval).Run(ctx)
+	go controller.NewHealthController(client, logger, cfg.ReconcileInterval).Run(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
