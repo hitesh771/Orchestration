@@ -33,6 +33,9 @@ type Config struct {
 	BackoffBase time.Duration // initial restart delay
 	BackoffMax  time.Duration // maximum restart delay (cap)
 
+	// Behavioral parameters — autoscaling
+	AutoscaleInterval time.Duration // how often the autoscaler evaluates deployments
+
 	// Behavioral parameters — scaling cooldowns
 	ScaleUpCooldown   time.Duration // minimum gap between scale-up actions
 	ScaleDownCooldown time.Duration // minimum gap between scale-down actions
@@ -59,8 +62,9 @@ func Load() *Config {
 		FailureThreshold:    envInt("FAILURE_THRESHOLD", 3),
 		BackoffBase:         envDuration("BACKOFF_BASE", 1*time.Second),
 		BackoffMax:          envDuration("BACKOFF_MAX", 30*time.Second),
+		AutoscaleInterval:   envDuration("AUTOSCALE_INTERVAL", 15*time.Second),
 		ScaleUpCooldown:     envDuration("SCALE_UP_COOLDOWN", 30*time.Second),
-		ScaleDownCooldown:   envDuration("SCALE_DOWN_COOLDOWN", 60*time.Second),
+		ScaleDownCooldown:   envDuration("SCALE_DOWN_COOLDOWN", 180*time.Second),
 		IngressDebounce:     envDuration("INGRESS_DEBOUNCE", 2*time.Second),
 		TotalCPU:            envInt("TOTAL_CPU", 1000),
 		TotalMem:            envInt("TOTAL_MEM", 1024),

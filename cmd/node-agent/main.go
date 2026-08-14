@@ -91,6 +91,10 @@ func run() error {
 		BackoffMax:       cfg.BackoffMax,
 	})
 
+	// Telemetry is collected here because CPU time is a property of a local
+	// process: nothing outside this node can read it.
+	go sup.RunTelemetryCollector(ctx, cfg.HealthCheckInterval)
+
 	logger.Info(ctx, "node_ready",
 		fmt.Sprintf("lease active, refreshing every %s with a %s TTL", cfg.HeartbeatInterval, cfg.LeaseTTL),
 		logging.NodeID(cfg.NodeID),

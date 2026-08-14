@@ -81,6 +81,11 @@ func run() error {
 	// is one fewer thing to supervise.
 	go controller.NewReplicaController(client, logger, cfg.ReconcileInterval).Run(ctx)
 	go controller.NewHealthController(client, logger, cfg.ReconcileInterval).Run(ctx)
+	go controller.NewAutoscaler(client, logger, controller.AutoscaleConfig{
+		Interval:          cfg.AutoscaleInterval,
+		ScaleUpCooldown:   cfg.ScaleUpCooldown,
+		ScaleDownCooldown: cfg.ScaleDownCooldown,
+	}).Run(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
