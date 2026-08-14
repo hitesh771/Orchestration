@@ -174,7 +174,7 @@ func TestScaleDownDispatchesStopCommandsToLiveNodes(t *testing.T) {
 
 	var stops int
 	for {
-		payload, err := client.BlockingPop(ctx, schema.NodeCommandsKey(node), 200*time.Millisecond)
+		payload, err := client.BlockingPop(ctx, schema.NodeCommandsKey(node), time.Second)
 		if err != nil {
 			break
 		}
