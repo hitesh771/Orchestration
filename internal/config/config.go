@@ -43,6 +43,9 @@ type Config struct {
 	// Behavioral parameters — ingress
 	IngressDebounce time.Duration // collapse burst of changes into one reload
 
+	// Ingress
+	IngressConfigPath string // file the generated Nginx upstreams are written to
+
 	// Node resources (used by node-agent for registration)
 	TotalCPU int // total CPU in millicores this node offers
 	TotalMem int // total memory in MB this node offers
@@ -66,6 +69,7 @@ func Load() *Config {
 		ScaleUpCooldown:     envDuration("SCALE_UP_COOLDOWN", 30*time.Second),
 		ScaleDownCooldown:   envDuration("SCALE_DOWN_COOLDOWN", 180*time.Second),
 		IngressDebounce:     envDuration("INGRESS_DEBOUNCE", 2*time.Second),
+		IngressConfigPath:   envOrDefault("INGRESS_CONFIG_PATH", "/tmp/mini-k8s-upstreams.conf"),
 		TotalCPU:            envInt("TOTAL_CPU", 1000),
 		TotalMem:            envInt("TOTAL_MEM", 1024),
 	}

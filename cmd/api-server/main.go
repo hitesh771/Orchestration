@@ -19,6 +19,7 @@ import (
 	"mini-k8s/internal/api"
 	"mini-k8s/internal/config"
 	"mini-k8s/internal/controller"
+	"mini-k8s/internal/ingress"
 	"mini-k8s/internal/logging"
 	"mini-k8s/internal/redisclient"
 )
@@ -85,6 +86,11 @@ func run() error {
 		Interval:          cfg.AutoscaleInterval,
 		ScaleUpCooldown:   cfg.ScaleUpCooldown,
 		ScaleDownCooldown: cfg.ScaleDownCooldown,
+	}).Run(ctx)
+	go ingress.New(client, logger, ingress.Config{
+		ConfigPath:     cfg.IngressConfigPath,
+		Debounce:       cfg.IngressDebounce,
+		ResyncInterval: cfg.ReconcileInterval,
 	}).Run(ctx)
 
 	errCh := make(chan error, 1)
