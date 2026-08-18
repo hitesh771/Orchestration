@@ -188,6 +188,27 @@ func (c *Client) StreamRead(ctx context.Context, key, lastID string, count int64
 	return entries, nil
 }
 
+// StreamReadReverse returns up to count entries, newest first.
+//
+// The dashboard needs the most recent log lines, and a forward read would have
+// to walk the whole stream to find its tail.
+func (c *Client) StreamReadReverse(ctx context.Context, key string, count int64) ([]StreamEntry, error) {
+	results, err := c.rdb.XRevRangeN(ctx, key, "+", "-", count).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]StreamEntry, 0, len(results))
+	for _, msg := range results {
+		fields := make(map[string]string, len(msg.Values))
+		for k, v := range msg.Values {
+			fields[k] = fmt.Sprintf("%v", v)
+		}
+		entries = append(entries, StreamEntry{ID: msg.ID, Fields: fields})
+	}
+	return entries, nil
+}
+
 // StreamTrim caps a stream to approximately maxLen entries.
 func (c *Client) StreamTrim(ctx context.Context, key string, maxLen int64) error {
 	return c.rdb.XTrimMaxLen(ctx, key, maxLen).Err()

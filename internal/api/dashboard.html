@@ -1,0 +1,226 @@
+<!-- Served by mini-k8s. Self-contained: no external assets, so the dashboard
+     works on a host with no internet access. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mini-k8s</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36;
+    --text: #e6e9ef; --dim: #8b93a7;
+    --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --accent: #60a5fa;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 13px; }
+  header {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  #conn { color: var(--dim); }
+  #conn.live { color: var(--ok); }
+  #conn.lost { color: var(--bad); }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 12px; padding: 12px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; min-width: 0; }
+  h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--dim); font-weight: 500; }
+  .scroll { overflow-x: auto; }
+  .bar { position: relative; background: #0b0d11; border-radius: 3px; height: 14px; min-width: 90px; }
+  .bar > span { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 3px; }
+  .bar > b { position: absolute; inset: 0; text-align: center; font-weight: 400; font-size: 11px; line-height: 14px; }
+  .Running, .Ready { color: var(--ok); }
+  .Pending { color: var(--warn); }
+  .Failed, .CrashLoopBackOff, .Evicted, .Unschedulable, .NotReady { color: var(--bad); }
+  #log { max-height: 300px; overflow-y: auto; font-size: 12px; line-height: 1.5; }
+  #log div { display: flex; gap: 8px; }
+  #log .ts { color: var(--dim); flex: none; }
+  #log .ERROR { color: var(--bad); }
+  #log .WARN { color: var(--warn); }
+  .empty { color: var(--dim); padding: 6px; }
+  form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  input, button { font: inherit; background: #0b0d11; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  #msg { color: var(--dim); margin-top: 8px; min-height: 16px; }
+</style>
+
+<header>
+  <h1>mini-k8s</h1>
+  <span id="conn">connecting</span>
+</header>
+
+<main>
+  <section>
+    <h2>Nodes</h2>
+    <div class="scroll"><table id="nodes"><thead><tr>
+      <th>node</th><th>state</th><th>cpu</th><th>memory</th><th>pods</th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Deployments</h2>
+    <div class="scroll"><table id="deployments"><thead><tr>
+      <th>name</th><th>replicas</th><th>ready</th><th>cpu</th><th>target</th><th></th>
+    </tr></thead><tbody></tbody></table></div>
+    <div id="msg"></div>
+  </section>
+
+  <section>
+    <h2>Pods</h2>
+    <div class="scroll"><table id="pods"><thead><tr>
+      <th>pod</th><th>deployment</th><th>node</th><th>status</th><th>port</th><th>restarts</th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Events</h2>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+const conn = document.getElementById("conn");
+const msg = document.getElementById("msg");
+const logBox = document.getElementById("log");
+
+// Every value from the server is inserted as text, never as markup: pod ids and
+// deployment names are user-supplied, so building HTML from them would let a
+// deployment name execute script in this page.
+function cell(row, text, cls) {
+  const td = document.createElement("td");
+  td.textContent = text === undefined || text === null ? "" : String(text);
+  if (cls) td.className = cls;
+  row.appendChild(td);
+  return td;
+}
+
+function meter(row, used, total) {
+  const td = document.createElement("td");
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+  const fill = document.createElement("span");
+  fill.style.width = pct + "%";
+  if (pct >= 90) fill.style.background = "var(--bad)";
+  else if (pct >= 70) fill.style.background = "var(--warn)";
+  const label = document.createElement("b");
+  label.textContent = used + " / " + total;
+  bar.appendChild(fill);
+  bar.appendChild(label);
+  td.appendChild(bar);
+  row.appendChild(td);
+}
+
+function renderNodes(nodes) {
+  const body = document.querySelector("#nodes tbody");
+  body.textContent = "";
+  for (const n of nodes || []) {
+    const row = body.insertRow();
+    cell(row, n.node_id);
+    cell(row, n.ready ? "Ready" : "NotReady", n.ready ? "Ready" : "NotReady");
+    meter(row, n.allocated_cpu, n.total_cpu);
+    meter(row, n.allocated_mem, n.total_mem);
+    cell(row, n.pod_count);
+  }
+}
+
+function renderDeployments(deps) {
+  const body = document.querySelector("#deployments tbody");
+  body.textContent = "";
+  for (const d of deps || []) {
+    const row = body.insertRow();
+    cell(row, d.name);
+    cell(row, d.desired_replicas);
+    cell(row, d.ready_replicas, d.ready_replicas >= d.desired_replicas ? "Running" : "Pending");
+    cell(row, d.observed_cpu_percent + "%");
+    cell(row, d.target_cpu_percentage + "%");
+
+    const td = document.createElement("td");
+    for (const delta of [-1, 1]) {
+      const b = document.createElement("button");
+      b.textContent = delta > 0 ? "+" : "-";
+      b.onclick = () => scale(d.name, d.desired_replicas + delta);
+      td.appendChild(b);
+    }
+    row.appendChild(td);
+  }
+}
+
+function renderPods(pods) {
+  const body = document.querySelector("#pods tbody");
+  body.textContent = "";
+  if (!pods || pods.length === 0) {
+    const row = body.insertRow();
+    const td = cell(row, "no pods scheduled", "empty");
+    td.colSpan = 6;
+    return;
+  }
+  for (const p of pods) {
+    const row = body.insertRow();
+    cell(row, p.pod_id);
+    cell(row, p.deployment);
+    cell(row, p.node_id);
+    cell(row, p.status, p.status);
+    cell(row, p.host_port || "");
+    cell(row, p.restart_count || 0);
+  }
+}
+
+function appendLog(entries) {
+  for (const e of entries || []) {
+    const line = document.createElement("div");
+    const ts = document.createElement("span");
+    ts.className = "ts";
+    ts.textContent = (e.timestamp || "").slice(11, 19);
+    const body = document.createElement("span");
+    body.className = e.level || "INFO";
+    const parts = [e.event_type, e.message].filter(Boolean);
+    body.textContent = parts.join(" - ");
+    line.appendChild(ts);
+    line.appendChild(body);
+    logBox.appendChild(line);
+  }
+  // Bound the DOM: an unbounded log would grow until the tab dies.
+  while (logBox.childElementCount > 300) logBox.removeChild(logBox.firstChild);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+async function scale(name, replicas) {
+  if (replicas < 0) return;
+  msg.textContent = "scaling " + name + " to " + replicas + "...";
+  try {
+    const res = await fetch("/deployments/" + encodeURIComponent(name) + "/scale", {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({desired_replicas: replicas}),
+    });
+    const body = await res.json();
+    msg.textContent = res.ok
+      ? name + " -> " + body.desired_replicas + " replicas (clamped to its bounds)"
+      : "error: " + (body.error || res.status);
+  } catch (err) {
+    msg.textContent = "error: " + err;
+  }
+}
+
+function apply(state) {
+  renderNodes(state.nodes);
+  renderDeployments(state.deployments);
+  renderPods(state.pods);
+  if (state.logs) appendLog(state.logs);
+}
+
+// EventSource reconnects on its own, so a control-plane restart does not need a
+// page reload; the status line reflects whichever state the stream is in.
+const stream = new EventSource("/events");
+stream.onopen = () => { conn.className = "live"; conn.textContent = "live"; };
+stream.onerror = () => { conn.className = "lost"; conn.textContent = "reconnecting"; };
+stream.onmessage = (ev) => {
+  try { apply(JSON.parse(ev.data)); }
+  catch (err) { /* a truncated frame is dropped; the next snapshot is complete */ }
+};
+</script>

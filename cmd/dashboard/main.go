@@ -1,7 +1,10 @@
-// Command dashboard is the UI entrypoint for mini-k8s.
-// In Phase 1 it loads config, connects to Redis, emits a component_started
-// log event, and idles. Phase 10 adds the static assets, SSE endpoint,
-// and live cluster view.
+// Command dashboard is a standalone liveness probe for the UI.
+//
+// The dashboard itself is served by api-server at GET /, with its snapshot and
+// SSE endpoints at /state and /events. It lives there because it reads exactly
+// the state the API already reads, and a second process would duplicate that
+// wiring to render the same view. This binary remains as a way to confirm the
+// configured Redis is reachable from wherever the UI is expected to run.
 package main
 
 import (

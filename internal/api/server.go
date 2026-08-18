@@ -57,6 +57,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /deployments/{name}/scale", s.handleScaleDeployment)
 	mux.HandleFunc("GET /nodes", s.handleListNodes)
 	mux.HandleFunc("POST /deployments/{name}/schedule", s.handleTriggerSchedule)
+	mux.HandleFunc("GET /state", s.handleState)
+	mux.HandleFunc("GET /events", s.handleEvents)
+	// Registered last and matched last: "GET /" is ServeMux's catch-all.
+	mux.HandleFunc("GET /", s.handleDashboard)
 	return mux
 }
 
