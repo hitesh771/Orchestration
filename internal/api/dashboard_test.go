@@ -143,8 +143,14 @@ func TestSnapshotOrderingIsStable(t *testing.T) {
 		json.NewDecoder(resp.Body).Decode(&snapshot)
 		resp.Body.Close()
 
+		// Only this test's own pods are compared. The snapshot covers the whole
+		// cluster, so pods belonging to other tests would come and go mid-run
+		// and make the comparison about their lifecycle rather than ordering.
 		var ids []string
 		for _, pod := range snapshot.Pods {
+			if pod.Deployment != name {
+				continue
+			}
 			ids = append(ids, pod.Deployment+"/"+pod.PodID)
 		}
 		joined := strings.Join(ids, ",")
