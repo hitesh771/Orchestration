@@ -108,7 +108,14 @@ if wanted > desired then
   return {"scaled_up", desired, wanted, observed}
 end
 
-if now - lastDown < downCooldown then
+-- Scale-down is blocked by the most recent scaling action of either kind, not
+-- only by the last scale-down. The flap this exists to prevent is a scale-up
+-- followed immediately by a tear-down: measuring from the last scale-down alone
+-- would let a deployment that just added replicas remove them on the next tick,
+-- before the new processes have finished starting and reported any load at all.
+local lastChange = lastUp
+if lastDown > lastChange then lastChange = lastDown end
+if now - lastChange < downCooldown then
   return {"down_cooldown", desired, desired, observed}
 end
 redis.call("HSET", depKey, "desired_replicas", wanted, "last_scale_down_at", now)

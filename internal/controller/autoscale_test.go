@@ -318,3 +318,33 @@ func TestAutoscaleHandlesMissingDeployment(t *testing.T) {
 		t.Fatalf("want the missing deployment reported, got %+v", d)
 	}
 }
+
+// The flap the scale-down cooldown exists to prevent is a scale-up followed
+// immediately by a tear-down, so a recent scale-up must block a scale-down just
+// as a recent scale-down does.
+func TestAutoscaleDoesNotTearDownRightAfterScalingUp(t *testing.T) {
+	as, client, prefix := newTestAutoscaler(t)
+	ctx := context.Background()
+	dep := prefix + "-web"
+	addDeployment(t, client, dep, 4)
+	writeSamples(t, client, dep, "p1", 1, 1, 1) // idle: wants the floor
+
+	// Scaled up a moment ago, and never scaled down.
+	if err := client.HashSet(ctx, schema.DeploymentKey(dep), map[string]interface{}{
+		schema.FieldLastScaleUpAt:   strconv.FormatInt(time.Now().Unix(), 10),
+		schema.FieldLastScaleDownAt: "0",
+	}); err != nil {
+		t.Fatalf("set stamps: %v", err)
+	}
+
+	d, err := as.Evaluate(ctx, dep)
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if d.Outcome != "down_cooldown" || d.Changed() {
+		t.Fatalf("want the tear-down blocked by the recent scale-up, got %+v", d)
+	}
+	if got := desiredOf(t, client, dep); got != 4 {
+		t.Fatalf("desired_replicas = %d, want 4 held", got)
+	}
+}
