@@ -379,7 +379,10 @@ func (c *ReplicaController) forceRemove(ctx context.Context, pod *schema.PodSpec
 			return fmt.Errorf("release capacity for %s: %w", pod.PodID, err)
 		}
 	}
-	if err := c.client.DeleteKey(ctx, schema.PodKey(pod.Deployment, pod.PodID)); err != nil {
+	if err := c.client.DeleteKey(ctx,
+		schema.PodKey(pod.Deployment, pod.PodID),
+		schema.TelemetryCPUKey(pod.Deployment, pod.PodID),
+	); err != nil {
 		return fmt.Errorf("delete pod %s: %w", pod.PodID, err)
 	}
 	return nil
@@ -387,9 +390,9 @@ func (c *ReplicaController) forceRemove(ctx context.Context, pod *schema.PodSpec
 
 // deletePodRecords drops pod records whose capacity is already released.
 func (c *ReplicaController) deletePodRecords(ctx context.Context, deployment string, podIDs []string) error {
-	keys := make([]string, 0, len(podIDs))
+	keys := make([]string, 0, len(podIDs)*2)
 	for _, id := range podIDs {
-		keys = append(keys, schema.PodKey(deployment, id))
+		keys = append(keys, schema.PodKey(deployment, id), schema.TelemetryCPUKey(deployment, id))
 	}
 	if err := c.client.DeleteKey(ctx, keys...); err != nil {
 		return fmt.Errorf("delete evicted pod records for %s: %w", deployment, err)

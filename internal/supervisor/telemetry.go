@@ -25,6 +25,21 @@ const (
 	stimeField = 15
 )
 
+// sampleTTLFactor sets how many collection intervals a telemetry list outlives
+// its last write.
+//
+// Without an expiry, a pod's samples survive the pod. The autoscaler averages
+// across every pod's list, so a departed pod's last readings keep voting: after
+// a few rescheduling rounds the average is dominated by pods that no longer
+// exist, and a genuinely loaded deployment reads as idle. Refreshing the TTL on
+// every write means a list outlives its pod by a bounded margin and then
+// disappears on its own, which no deletion path has to remember to do.
+//
+// The margin has to tolerate a missed collection or two, or a live pod's own
+// samples would expire between writes and it would drop out of the average it
+// belongs in.
+const sampleTTLFactor = 4
+
 // cpuSample is one pod's cumulative CPU time at a point in time.
 type cpuSample struct {
 	ticks uint64
@@ -54,7 +69,7 @@ func (s *Supervisor) RunTelemetryCollector(ctx context.Context, interval time.Du
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.collectOnce(ctx, last); err != nil && ctx.Err() == nil {
+			if err := s.collectOnce(ctx, last, interval); err != nil && ctx.Err() == nil {
 				s.logger.Warn(ctx, "telemetry_collection_failed", err.Error(),
 					logging.NodeID(s.nodeID))
 			}
@@ -63,7 +78,7 @@ func (s *Supervisor) RunTelemetryCollector(ctx context.Context, interval time.Du
 }
 
 // collectOnce publishes one sample per running pod on this node.
-func (s *Supervisor) collectOnce(ctx context.Context, last map[string]cpuSample) error {
+func (s *Supervisor) collectOnce(ctx context.Context, last map[string]cpuSample, interval time.Duration) error {
 	keys, err := s.client.ScanKeys(ctx, schema.PodKeyPattern())
 	if err != nil {
 		return fmt.Errorf("scan pods: %w", err)
@@ -103,7 +118,7 @@ func (s *Supervisor) collectOnce(ctx context.Context, last map[string]cpuSample)
 		}
 
 		percent := cpuPercentOfRequest(prev, cpuSample{ticks: ticks, at: now}, pod.CPURequest)
-		if err := s.publishSample(ctx, pod, percent); err != nil {
+		if err := s.publishSample(ctx, pod, percent, interval); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -122,8 +137,8 @@ func (s *Supervisor) collectOnce(ctx context.Context, last map[string]cpuSample)
 	return nil
 }
 
-// publishSample appends a sample and trims the list to the retained window.
-func (s *Supervisor) publishSample(ctx context.Context, pod *schema.PodSpec, percent int) error {
+// publishSample appends a sample, trims the list, and refreshes its expiry.
+func (s *Supervisor) publishSample(ctx context.Context, pod *schema.PodSpec, percent int, interval time.Duration) error {
 	key := schema.TelemetryCPUKey(pod.Deployment, pod.PodID)
 	if err := s.client.ListPush(ctx, key, strconv.Itoa(percent)); err != nil {
 		return fmt.Errorf("push sample: %w", err)
@@ -132,6 +147,12 @@ func (s *Supervisor) publishSample(ctx context.Context, pod *schema.PodSpec, per
 	// bound, and the autoscaler only ever reads the tail.
 	if err := s.client.ListTrim(ctx, key, -telemetrySamples, -1); err != nil {
 		return fmt.Errorf("trim samples: %w", err)
+	}
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	if err := s.client.Expire(ctx, key, interval*sampleTTLFactor); err != nil {
+		return fmt.Errorf("set sample expiry: %w", err)
 	}
 	return nil
 }

@@ -124,6 +124,13 @@ func (s *Supervisor) StopAndRemove(ctx context.Context, deployment, podID string
 		}
 	}
 
+	// Telemetry goes with the pod. The list would expire on its own, but until
+	// it did the departed pod would keep voting in the autoscaler's average.
+	if err := s.client.DeleteKey(ctx, schema.TelemetryCPUKey(deployment, podID)); err != nil {
+		s.logger.Warn(ctx, "telemetry_cleanup_failed", err.Error(),
+			logging.DeploymentID(deployment), logging.PodID(podID))
+	}
+
 	if err := s.client.DeleteKey(ctx, podKey); err != nil {
 		return fmt.Errorf("delete pod %s: %w", podID, err)
 	}

@@ -78,7 +78,7 @@ func TestTelemetryFirstCollectionOnlyEstablishesABaseline(t *testing.T) {
 	t.Cleanup(func() { f.client.DeleteKey(ctx, key) })
 
 	last := make(map[string]cpuSample)
-	if err := f.sup.collectOnce(ctx, last); err != nil {
+	if err := f.sup.collectOnce(ctx, last, time.Second); err != nil {
 		t.Fatalf("collectOnce: %v", err)
 	}
 	samples, err := f.client.ListRange(ctx, key, 0, -1)
@@ -94,7 +94,7 @@ func TestTelemetryFirstCollectionOnlyEstablishesABaseline(t *testing.T) {
 
 	// The second pass has two readings and can publish a real rate.
 	time.Sleep(50 * time.Millisecond)
-	if err := f.sup.collectOnce(ctx, last); err != nil {
+	if err := f.sup.collectOnce(ctx, last, time.Second); err != nil {
 		t.Fatalf("second collectOnce: %v", err)
 	}
 	samples, err = f.client.ListRange(ctx, key, 0, -1)
@@ -120,7 +120,7 @@ func TestTelemetryTrimsToTheRetainedWindow(t *testing.T) {
 	t.Cleanup(func() { f.client.DeleteKey(ctx, key) })
 
 	for i := 0; i < telemetrySamples+5; i++ {
-		if err := f.sup.publishSample(ctx, pod, i); err != nil {
+		if err := f.sup.publishSample(ctx, pod, i, time.Second); err != nil {
 			t.Fatalf("publishSample: %v", err)
 		}
 	}
@@ -149,7 +149,7 @@ func TestTelemetryIgnoresPodsOnOtherNodes(t *testing.T) {
 	t.Cleanup(func() { f.client.DeleteKey(ctx, key) })
 
 	last := make(map[string]cpuSample)
-	if err := f.sup.collectOnce(ctx, last); err != nil {
+	if err := f.sup.collectOnce(ctx, last, time.Second); err != nil {
 		t.Fatalf("collectOnce: %v", err)
 	}
 	if len(last) != 0 {
@@ -165,7 +165,7 @@ func TestTelemetryForgetsBaselinesOfVanishedPods(t *testing.T) {
 	last := map[string]cpuSample{
 		f.deployment + "/gone": {ticks: 1, at: time.Now()},
 	}
-	if err := f.sup.collectOnce(ctx, last); err != nil {
+	if err := f.sup.collectOnce(ctx, last, time.Second); err != nil {
 		t.Fatalf("collectOnce: %v", err)
 	}
 	if len(last) != 0 {
