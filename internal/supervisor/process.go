@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package supervisor runs and watches the workload processes assigned to a
 // node. It owns process spawning, durable process identity, and the startup
 // reconciliation that makes an agent restart safe.
