@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -70,7 +71,7 @@ func (r *DeploymentRequest) Validate() error {
 	execPath := strings.TrimSpace(r.ExecPath)
 	if execPath == "" {
 		problems = append(problems, "exec_path is required")
-	} else if !strings.HasPrefix(execPath, "/") {
+	} else if (!filepath.IsAbs(execPath) && !strings.HasPrefix(execPath, "/")) {
 		// A relative path would resolve against whatever working directory the
 		// agent happens to have, which differs per node.
 		problems = append(problems, "exec_path must be an absolute path")
