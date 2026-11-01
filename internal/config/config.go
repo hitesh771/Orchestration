@@ -5,6 +5,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -69,7 +70,7 @@ func Load() *Config {
 		ScaleUpCooldown:     envDuration("SCALE_UP_COOLDOWN", 30*time.Second),
 		ScaleDownCooldown:   envDuration("SCALE_DOWN_COOLDOWN", 180*time.Second),
 		IngressDebounce:     envDuration("INGRESS_DEBOUNCE", 2*time.Second),
-		IngressConfigPath:   envOrDefault("INGRESS_CONFIG_PATH", "/tmp/mini-k8s-upstreams.conf"),
+		IngressConfigPath:   envOrDefault("INGRESS_CONFIG_PATH", filepath.Join(os.TempDir(), "mini-k8s-upstreams.conf")),
 		TotalCPU:            envInt("TOTAL_CPU", 1000),
 		TotalMem:            envInt("TOTAL_MEM", 1024),
 	}

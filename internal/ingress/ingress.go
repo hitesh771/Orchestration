@@ -64,7 +64,7 @@ func New(client *redisclient.Client, logger *logging.Logger, cfg Config) *Contro
 		cfg.ResyncInterval = 30 * time.Second
 	}
 	if cfg.ConfigPath == "" {
-		cfg.ConfigPath = "/tmp/mini-k8s-upstreams.conf"
+		cfg.ConfigPath = filepath.Join(os.TempDir(), "mini-k8s-upstreams.conf")
 	}
 	if len(cfg.ReloadCommand) == 0 {
 		cfg.ReloadCommand = []string{"nginx", "-s", "reload"}
@@ -274,6 +274,7 @@ func upstreamName(deployment string) string {
 // something else. A truncate-then-write would expose a partial config; a rename
 // over the old file never does.
 func (c *Controller) write(content string) error {
+	_ = os.MkdirAll(filepath.Dir(c.cfg.ConfigPath), 0o755)
 	dir := filepath.Dir(c.cfg.ConfigPath)
 	tmp, err := os.CreateTemp(dir, ".upstreams-*.conf")
 	if err != nil {
